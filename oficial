@@ -49,6 +49,11 @@ button,input,select{font-family:inherit;font-size:13px}
 .logo-m{display:none}
 .top-actions{margin-left:auto;display:none;gap:6px}
 .top-actions .btn{background:#26262B;color:#fff;border-color:#3A3A40;padding:7px 10px}
+.sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 22px;font-size:12.5px;border-bottom:1px solid var(--line);background:#fff}
+.sync .dot{width:9px;height:9px;border-radius:50%;background:#9CA3AF;flex:none}
+.sync.ok .dot{background:var(--ok)} .sync.chg{background:#FFF7ED} .sync.chg .dot{background:var(--or);box-shadow:0 0 0 4px rgba(247,147,30,.2)} .sync.err{background:#FEF2F2} .sync.err .dot{background:var(--err)}
+.sync.load .dot{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.3}}
+.sync .acts{margin-left:auto;display:flex;gap:6px}
 .notice{background:var(--or-soft);color:#7C3E00;border-bottom:1px solid #FBD9B0;padding:7px 22px;font-size:12px;display:flex;gap:8px;align-items:center}
 .notice b{color:#5C2E00}
 main{max-width:1560px;width:100%;margin:0 auto;padding:18px 22px 28px}
@@ -299,6 +304,8 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
     <button data-tab="resumo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Resumo</span></button>
   </nav>
   <div class="side-foot">
+    <button class="side-btn" id="btnSync" style="border-color:#7C3E00">⟳ Sincronizar planilha</button>
+    <button class="side-btn" id="btnSyncCfg">⚙ Conexão com a planilha</button>
     <button class="side-btn" id="btnBackup">⬇ Baixar backup</button>
     <button class="side-btn" id="btnRestore">⬆ Restaurar backup</button>
     <div class="side-note">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.<div id="storeUse" style="margin-top:6px"></div></div>
@@ -310,7 +317,8 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
   <div class="crumb"><span>Controle de Histogramas</span><b id="pageTitle">Mão de obra</b></div>
   <div class="top-actions"><button class="btn" id="btnBackupM" title="Baixar backup">⬇</button><button class="btn" id="btnRestoreM" title="Restaurar backup">⬆</button></div>
 </header>
-<div class="notice">ⓘ <span>Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). Não há sincronização entre dispositivos — use <b>Baixar backup</b> regularmente.</span></div>
+<div id="syncBar"></div>
+<div class="notice">ⓘ <span>Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use <b>Baixar backup</b> regularmente.</span></div>
 <main>
   <section class="tab on" id="tab-labor"></section>
   <section class="tab" id="tab-equip"></section>
@@ -347,7 +355,7 @@ function ymdUTC(dt){ return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth()+1)}-
 function validYMD(y,m,d){ const dt = new Date(Date.UTC(y, m-1, d)); return dt.getUTCFullYear()===y && dt.getUTCMonth()===m-1 && dt.getUTCDate()===d ? ymdUTC(dt) : null; }
 function serialToYMD(n){ if(!(n > 1000 && n < 120000)) return null; const dt = new Date(Date.UTC(1899,11,30) + Math.round(n)*86400000); return ymdUTC(dt); }
 /** Converte valor de data. Retorna {v:'YYYY-MM-DD'|'' , err?:string, dash?:true} */
-function parseDate(raw, isSerial){
+function parseDate(raw, order){
   if (raw == null) return {v:''};
   if (typeof raw === 'number') { const v = serialToYMD(raw); return v ? {v} : {v:'', err:'Data inválida'}; }
   const s = String(raw).trim();
@@ -355,7 +363,7 @@ function parseDate(raw, isSerial){
   if (DASHES.has(s)) return {v:'', dash:true};
   let m;
   if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/))) { const v = validYMD(+m[1], +m[2], +m[3]); return v ? {v} : {v:'', err:`Data inválida "${s}"`}; }
-  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})(?:\s.*)?$/))) { let y = +m[3]; if (y < 100) y += 2000; const v = validYMD(y, +m[2], +m[1]); return v ? {v} : {v:'', err:`Data inválida "${s}"`}; }
+  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})(?:\s.*)?$/))) { let y = +m[3]; if (y < 100) y += 2000; const v = order === 'mdy' ? validYMD(y, +m[1], +m[2]) : validYMD(y, +m[2], +m[1]); return v ? {v} : {v:'', err:`Data inválida "${s}"`}; }
   if (/^\d{5}(\.\d+)?$/.test(s)) { const v = serialToYMD(parseFloat(s)); if (v) return {v}; }
   return {v:'', err:`Data inválida "${s}"`};
 }
@@ -1239,11 +1247,11 @@ function bindWeekPickers(root){
 }
 
 /* ---------- cadastro / edição ---------- */
-function validateRecord(kind, raw){
+function validateRecord(kind, raw, opt = {}){
   const K = KINDS[kind]; const rec = {}; const errors = []; const warns = [];
   for (const fd of K.fields) {
     const v = raw[fd.k];
-    if (fd.t === 'date') { const d = parseDate(v); rec[fd.k] = d.v; if (d.err) errors.push({field: fd.l, msg: d.err}); if (d.dash) warns.push(`${fd.l} "-" tratado como não informado`); }
+    if (fd.t === 'date') { const d = parseDate(v, opt.order); rec[fd.k] = d.v; if (d.err) errors.push({field: fd.l, msg: d.err}); if (d.dash) warns.push(`${fd.l} "-" tratado como não informado`); }
     else if (fd.t === 'week') { const w = parseWeek(v); rec[fd.k] = w.v; if (w.err) errors.push({field: fd.l, msg: w.err}); }
     else if (fd.t === 'cat') { const c = normCat(kind, v); rec[fd.k] = c || ''; if (c === null) errors.push({field: fd.l, msg: `Valor não reconhecido "${clean(v)}"`}); }
     else rec[fd.k] = clean(v);
@@ -1325,13 +1333,19 @@ function mapHeaders(kind, grid){
   }
   return best;
 }
+/** Detecta se as datas em texto do arquivo estão como dia/mês ou mês/dia (ex.: CSV do Google em inglês) */
+function detectDateOrder(kind, grid, hdr){
+  let dmy = 0, mdy = 0; const cols = KINDS[kind].fields.filter(f => f.t === 'date').map(f => hdr.map[f.k]).filter(i => i != null);
+  for (const row of grid) { if (row.n <= hdr.row) continue; for (const i of cols) { const c = row.cells[i]; if (!c || c.t === 'n') continue; const m = String(c.w ?? c.v ?? '').trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-]\d{2,4}/); if (!m) continue; if (+m[1] > 12) dmy++; if (+m[2] > 12) mdy++; } }
+  return mdy && !dmy ? 'mdy' : dmy && !mdy ? 'dmy' : null;
+}
 function cellValue(fd, c){
   if (!c) return '';
   if (fd.t === 'date' || fd.t === 'week') { if (c.t === 'n') return c.v; if (c.t === 'd') return ymdUTC(c.v); return c.w ?? String(c.v ?? ''); }
-  if (c.t === 'n') return c.w != null && c.w !== 'General' ? c.w : String(c.v);
+  if (c.t === 'n') { if (fd.id && Number.isInteger(c.v) && !(c.w && /^0\d/.test(c.w))) return String(c.v); return c.w != null && c.w !== 'General' ? c.w : String(c.v); }
   return c.w ?? String(c.v ?? '');
 }
-function analyzeImport(kind, grid, hdr, weekOverride, forceWeek){
+function analyzeImport(kind, grid, hdr, weekOverride, forceWeek, order){
   const K = KINDS[kind]; const out = []; const seenKey = new Map();
   const existing = new Map(Repo.data[kind].map(r => [recKey(kind, r), r]));
   const hasWeekCol = hdr.map.semana != null;
@@ -1341,12 +1355,12 @@ function analyzeImport(kind, grid, hdr, weekOverride, forceWeek){
     for (const fd of K.fields) { const i = hdr.map[fd.k]; raw[fd.k] = i == null ? '' : cellValue(fd, row.cells[i]); }
     if (K.fields.every(fd => isEmptyVal(raw[fd.k]))) continue;
     if (forceWeek || !hasWeekCol || isEmptyVal(raw.semana)) raw.semana = weekOverride || raw.semana;
-    const {rec, errors, warns} = validateRecord(kind, raw);
-    const res = {line: row.n, rec, errors, warns, existing: null};
+    const {rec, errors, warns} = validateRecord(kind, raw, {order});
+    const res = {line: row.n, rec, errors, warns, existing: null, changed: false};
     if (!errors.length) {
       const key = recKey(kind, rec);
       if (seenKey.has(key)) errors.push({field: kind === 'labor' ? 'Matrícula/CPF/Nome' : 'Prefixo', msg: `Duplicado na planilha (mesma chave da linha ${seenKey.get(key)})`});
-      else { seenKey.set(key, row.n); res.existing = existing.get(key) || null; }
+      else { seenKey.set(key, row.n); res.existing = existing.get(key) || null; if (res.existing) res.changed = K.fields.some(f => f.k !== K.start && clean(res.existing[f.k]) !== clean(rec[f.k])) || (!res.existing[K.start] && !!rec[K.start]); }
     }
     out.push(res);
   }
@@ -1365,19 +1379,40 @@ function dropManualGroup(kind, id){
   (kind === 'labor' ? ['MOD', 'MOI', 'TER', 'moTotal'] : ['LA', 'LB', 'PP', 'eqTotal']).forEach(k => m[k] = null);
   if (!manualGroup(m, 'labor') && !manualGroup(m, 'equip')) Repo.data.manual = Repo.data.manual.filter(x => x.id !== id);
 }
-function commitImport(kind, results, dropManual){
+function commitImport(kind, results, dropManual, removeIds){
   const K = KINDS[kind]; let created = 0, updated = 0, dropped = 0; const notes = [];
   if (dropManual) for (const c of manualConflicts(kind, results)) { dropManualGroup(kind, c.src.id); dropped++; }
+  let removed = 0; if (removeIds && removeIds.size) { const n0 = Repo.data[kind].length; Repo.data[kind] = Repo.data[kind].filter(x => !removeIds.has(x.id)); removed = n0 - Repo.data[kind].length; }
   const idx = new Map(Repo.data[kind].map(r => [recKey(kind, r), r]));
   const now = new Date().toISOString();
   const valid = results.filter(r => !r.errors.length).sort((a, b) => a.rec.semana.localeCompare(b.rec.semana));
   for (const r of valid) {
     const rec = {...r.rec}; rec.obra = canonObra(rec.obra);
     const key = recKey(kind, rec); const ex = idx.get(key);
-    if (ex) { const keep = ex[K.start] || rec[K.start]; Object.assign(ex, rec, {[K.start]: keep, updatedAt: now}); updated++; }
+    if (ex) { if (r.existing && !r.changed) continue; const keep = ex[K.start] || rec[K.start]; Object.assign(ex, rec, {[K.start]: keep, updatedAt: now}); updated++; }
     else { const n = inheritStart(kind, rec); if (n) notes.push(n); const nr = {id: uid(), ...rec, createdAt: now}; Repo.data[kind].push(nr); idx.set(key, nr); created++; }
   }
-  return {created, updated, dropped, preserved: notes.length};
+  return {created, updated, dropped, removed, preserved: notes.length};
+}
+const LS_SHEET = 'cosampa_histogramas_planilha';
+function sheetCfg(){ const d = {url: GS_URL, gidL: '694211200', gidE: '', auto: true}; try { return {...d, ...JSON.parse(localStorage.getItem(LS_SHEET) || '{}')}; } catch (e) { return d; } }
+function saveSheetCfg(c){ try { localStorage.setItem(LS_SHEET, JSON.stringify(c)); } catch (e) {} }
+/** Lê a planilha publicada: tenta o arquivo inteiro (.xlsx, todas as abas); se falhar, lê cada aba pelo gid (CSV). Somente leitura. */
+async function fetchPublishedWorkbook(raw, gids){
+  if (!/docs\.google\.com\/spreadsheets\/d\/e\//.test(raw || '')) throw new Error('link publicado inválido (use o link …/pubhtml de “Publicar na Web”)');
+  const base = raw.trim().replace(/\/pub(html)?(\?.*)?(#.*)?$/, '/pub');
+  try { const r = await fetch(base + '?output=xlsx', {cache: 'no-store'}); if (!r.ok) throw new Error('HTTP ' + r.status); return XLSX.read(await r.arrayBuffer(), {type: 'array', cellDates: false, cellText: true}); }
+  catch (e) {
+    const wb = XLSX.utils.book_new(); let n = 0;
+    for (const [k, gid] of Object.entries(gids || {})) {
+      if (!gid) continue;
+      const r = await fetch(`${base}?output=csv&single=true&gid=${encodeURIComponent(gid)}`, {cache: 'no-store'}); if (!r.ok) throw new Error(`aba ${IMPORT_SHEET[k]}: HTTP ${r.status}`);
+      const txt = await r.text(); if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error(`aba ${IMPORT_SHEET[k]}: resposta não é CSV`);
+      const w2 = XLSX.read(txt, {type: 'string', raw: true}); XLSX.utils.book_append_sheet(wb, w2.Sheets[w2.SheetNames[0]], IMPORT_SHEET[k]); n++;
+    }
+    if (!n) throw new Error(e.message);
+    return wb;
+  }
 }
 /* Planilha única com duas abas: “MO” → Mão de obra · “Equipamento” → Equipamentos */
 const IMPORT_SHEET = {labor: 'MO', equip: 'Equipamento'};
@@ -1389,7 +1424,7 @@ function guessSheet(kind, wb){
   for (const n of wb.SheetNames) { if (/instru/i.test(n)) continue; const h = mapHeaders(kind, sheetGrid(wb.Sheets[n])); if (h && DISTINCT[kind].some(k => h.map[k] != null) && h.hits > bestHits) { best = n; bestHits = h.hits; } }
   return best;
 }
-function openImport(startKind){
+function openImport(startKind, preWb, preName){
   if (!libsOk()) return toast('Bibliotecas não carregadas (verifique a conexão com a internet).', 'err');
   const KS = ['labor', 'equip'];
   const st = {wb: null, source: '', part: {labor: {sheet: '', results: [], hdr: null}, equip: {sheet: '', results: [], hdr: null}}};
@@ -1398,10 +1433,10 @@ function openImport(startKind){
   <div class="cols2">
     <div><div class="drop" data-drop><b>Arraste o arquivo aqui</b><br>ou clique para escolher (.xlsx, .xls, .csv)<input type="file" accept=".xlsx,.xls,.xlsm,.csv,.txt" hidden data-file></div></div>
     <div class="card" style="margin:0;box-shadow:none"><div style="font-weight:700;margin-bottom:6px">Planilha publicada (Google Sheets) — somente leitura</div>
-      <div class="fld"><span>Link publicado</span><input data-gsurl value="${esc(GS_URL)}"></div>
+      <div class="fld"><span>Link publicado</span><input data-gsurl value="${esc(sheetCfg().url)}"></div>
       <div style="display:flex;gap:8px;align-items:end;margin-top:8px;flex-wrap:wrap">
-        <div class="fld" style="flex:1;min-width:110px"><span>gid aba MO</span><input data-gid-labor value="694211200"></div>
-        <div class="fld" style="flex:1;min-width:110px"><span>gid aba Equipamento</span><input data-gid-equip placeholder="opcional"></div>
+        <div class="fld" style="flex:1;min-width:110px"><span>gid aba MO</span><input data-gid-labor value="${esc(sheetCfg().gidL)}"></div>
+        <div class="fld" style="flex:1;min-width:110px"><span>gid aba Equipamento</span><input data-gid-equip value="${esc(sheetCfg().gidE)}" placeholder="opcional"></div>
         <button class="btn dark" data-gs>Ler planilha</button></div>
       <div class="muted" style="font-size:11px;margin-top:6px">Tenta ler o arquivo inteiro (todas as abas); se não conseguir, lê cada aba pelo gid. Nada é gravado no Google Sheets. Se o navegador bloquear, baixe a planilha em Excel (.xlsx) e importe pelo arquivo.</div>
     </div>
@@ -1411,6 +1446,7 @@ function openImport(startKind){
     <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
       <div class="fld"><span>Semana para linhas sem semana (vale para as duas abas)</span>${weekInputHTML('wk', '')}</div>
       <label class="fld" style="flex-direction:row;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--tx)"><input type="checkbox" data-force style="width:auto;min-height:0"> Aplicar esta semana a todas as linhas</label>
+      <div class="fld"><span>Formato das datas em texto</span><select data-dord><option value="auto">Automático (detecta pelo arquivo)</option><option value="dmy">dia/mês/ano (dd/mm/aaaa)</option><option value="mdy">mês/dia/ano (mm/dd/aaaa — Google em inglês)</option></select></div>
     </div>
     <div data-wkerr></div>
     ${KS.map(k => `<div class="card" data-part="${k}" style="margin-top:12px;box-shadow:none;border-color:var(--line)">
@@ -1435,28 +1471,10 @@ function openImport(startKind){
     } catch (e) { toast('Não foi possível ler o arquivo: ' + e.message, 'err'); }
   }
   $('[data-gs]', el).onclick = async () => {
-    const raw = $('[data-gsurl]', el).value.trim();
-    if (!/docs\.google\.com\/spreadsheets\/d\/e\//.test(raw)) return toast('Informe o link publicado (…/pubhtml).', 'err');
-    const base = raw.replace(/\/pub(html)?(\?.*)?(#.*)?$/, '/pub');
     const b = $('[data-gs]', el); b.disabled = true; b.textContent = 'Lendo…'; $('[data-gserr]', el).innerHTML = '';
-    try {
-      let wb = null, why = '';
-      try { const r = await fetch(base + '?output=xlsx'); if (!r.ok) throw new Error('HTTP ' + r.status); wb = XLSX.read(await r.arrayBuffer(), {type: 'array', cellDates: false, cellText: true}); }
-      catch (e) { why = e.message; wb = null; }
-      if (!wb) {
-        wb = XLSX.utils.book_new(); let n = 0;
-        for (const k of KS) {
-          const gid = $(`[data-gid-${k}]`, el).value.trim(); if (!gid) continue;
-          const r = await fetch(`${base}?output=csv&single=true&gid=${encodeURIComponent(gid)}`); if (!r.ok) throw new Error(`aba ${IMPORT_SHEET[k]}: HTTP ${r.status}`);
-          const txt = await r.text(); if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error(`aba ${IMPORT_SHEET[k]}: resposta não é CSV`);
-          const w2 = XLSX.read(txt, {type: 'string', raw: true}); XLSX.utils.book_append_sheet(wb, w2.Sheets[w2.SheetNames[0]], IMPORT_SHEET[k]); n++;
-        }
-        if (!n) throw new Error(why || 'nenhum gid informado');
-      }
-      setWb(wb, 'Google Sheets publicado');
-    } catch (e) {
-      $('[data-gserr]', el).innerHTML = `<div class="alert err" style="margin-top:10px"><b>O navegador não conseguiu ler a planilha publicada</b> (${esc(e.message)}). Isso costuma ocorrer por bloqueio de acesso entre sites (CORS) ou gid incorreto.<br>Alternativa: abra a planilha, use <i>Arquivo → Fazer download → Microsoft Excel (.xlsx)</i> e importe o arquivo aqui — as abas MO e Equipamento são lidas juntas.</div>`;
-    } finally { b.disabled = false; b.textContent = 'Ler planilha'; }
+    try { setWb(await fetchPublishedWorkbook($('[data-gsurl]', el).value, {labor: $('[data-gid-labor]', el).value.trim(), equip: $('[data-gid-equip]', el).value.trim()}), 'Google Sheets publicado'); }
+    catch (e) { $('[data-gserr]', el).innerHTML = `<div class="alert err" style="margin-top:10px"><b>O navegador não conseguiu ler a planilha publicada</b> (${esc(e.message)}). Isso costuma ocorrer por bloqueio de acesso entre sites (CORS) ou gid incorreto.<br>Alternativa: abra a planilha, use <i>Arquivo → Fazer download → Microsoft Excel (.xlsx)</i> e importe o arquivo aqui — as abas MO e Equipamento são lidas juntas.</div>`; }
+    finally { b.disabled = false; b.textContent = 'Ler planilha'; }
   };
   function setWb(wb, name){
     st.wb = wb; st.source = name;
@@ -1472,14 +1490,16 @@ function openImport(startKind){
   KS.forEach(k => $(`[data-sheet="${k}"]`, el).onchange = analyzeAll);
   el.addEventListener('input', e => { if (e.target.dataset.k === 'wk') analyzeAll(); });
   $('[data-force]', el).onchange = analyzeAll;
+  $('[data-dord]', el).onchange = analyzeAll;
   $('[data-confirm]', el).onchange = updateBtn;
+  el.addEventListener('change', e => { if (e.target.dataset.mirror) updateBtn(); });
   function analyzeAll(){
     if (!st.wb) return;
     const wkRaw = $('[data-k=wk]', el).value.trim(); const wk = wkRaw ? parseWeek(wkRaw) : {v: ''};
     $('[data-wkerr]', el).innerHTML = wkRaw && wk.err ? `<div class="alert err">${esc(wk.err)}</div>` : '';
     const sameSheet = $('[data-sheet="labor"]', el).value && $('[data-sheet="labor"]', el).value === $('[data-sheet="equip"]', el).value;
     for (const k of KS) analyzePart(k, wk.v, sameSheet);
-    const anyUpd = KS.some(k => st.part[k].results.some(r => !r.errors.length && r.existing));
+    const anyUpd = KS.some(k => st.part[k].results.some(r => !r.errors.length && r.changed));
     $('[data-confirm-wrap]', el).hidden = !anyUpd; $('[data-confirm]', el).checked = false;
     updateBtn();
   }
@@ -1490,14 +1510,19 @@ function openImport(startKind){
     if (sameSheet) { sum.innerHTML = `<div class="alert err">A mesma aba foi escolhida para Mão de obra e Equipamentos. Selecione abas diferentes.</div>`; return; }
     const grid = sheetGrid(st.wb.Sheets[P.sheet]); P.hdr = mapHeaders(kind, grid);
     if (!P.hdr || !DISTINCT[kind].some(k => P.hdr.map[k] != null)) { P.hdr = null; sum.innerHTML = `<div class="alert err">Cabeçalhos de ${K.title.toLowerCase()} não reconhecidos na aba “${esc(P.sheet)}”. Colunas esperadas: ${K.fields.map(f => f.l).join(', ')}.</div>`; return; }
-    P.results = analyzeImport(kind, grid, P.hdr, wkV, $('[data-force]', el).checked);
-    const valid = P.results.filter(r => !r.errors.length), bad = P.results.filter(r => r.errors.length), upd = valid.filter(r => r.existing);
+    const dsel = $('[data-dord]', el).value; const det = detectDateOrder(kind, grid, P.hdr); P.order = dsel === 'auto' ? (det || 'dmy') : dsel;
+    P.results = analyzeImport(kind, grid, P.hdr, wkV, $('[data-force]', el).checked, P.order);
+    const valid = P.results.filter(r => !r.errors.length), bad = P.results.filter(r => r.errors.length), upd = valid.filter(r => r.changed), same = valid.filter(r => r.existing && !r.changed), news = valid.filter(r => !r.existing);
+    // cadastros do app (mesmas obras/semanas da planilha) que não constam mais na planilha
+    const pairs = new Set(valid.map(r => r.rec.semana + '|' + obraKey(r.rec.obra))), keys = new Set(valid.map(r => recKey(kind, r.rec)));
+    P.missing = Repo.data[kind].filter(x => pairs.has(x.semana + '|' + obraKey(x.obra)) && !keys.has(recKey(kind, x)));
     const missing = K.fields.filter(fd => P.hdr.map[fd.k] == null).map(fd => fd.l);
     const dashN = P.results.reduce((s2, r) => s2 + r.warns.filter(w => w.includes('"-"')).length, 0);
     const errs = bad.flatMap(r => r.errors.map(e => `<li><b>Linha ${r.line}</b> — ${esc(e.field)}: ${esc(e.msg)}</li>`));
     const cols = K.fields;
     sum.innerHTML = `
-      <div class="stat-row"><span class="chip info">${esc(st.source)} · aba “${esc(P.sheet)}”</span><span class="chip">Cabeçalho na linha ${P.hdr.row}</span><span class="chip">${P.results.length} linha(s)</span><span class="chip ok">${valid.length} válida(s)</span><span class="chip err">${bad.length} pendente(s)</span><span class="chip or">${valid.length - upd.length} nova(s)</span><span class="chip warn">${upd.length} atualização(ões)</span></div>
+      <div class="stat-row"><span class="chip info">${esc(st.source)} · aba “${esc(P.sheet)}”</span><span class="chip">Cabeçalho na linha ${P.hdr.row}</span><span class="chip">${P.results.length} linha(s)</span><span class="chip ok">${valid.length} válida(s)</span><span class="chip err">${bad.length} pendente(s)</span><span class="chip or">${news.length} nova(s)</span><span class="chip warn">${upd.length} alterada(s)</span><span class="chip">${same.length} sem alteração</span><span class="chip info">Datas: ${P.order === 'mdy' ? 'mês/dia/ano' : 'dia/mês/ano'}${dsel === 'auto' ? (det ? ' (detectado)' : ' (padrão)') : ''}</span></div>
+      ${P.missing.length ? `<label class="alert warn" style="display:flex;gap:8px;align-items:center;font-size:12.5px"><input type="checkbox" data-mirror="${kind}" style="width:auto;min-height:0"> <span><b>${P.missing.length} cadastro(s) do app não constam mais na planilha</b> nas mesmas obras/semanas (ex.: ${esc(P.missing.slice(0, 3).map(x => describeKey(kind, x)).join('; '))}). Marque para excluí-los e deixar o app igual à planilha.</span></label>` : ''}
       ${P.hdr.map.semana == null ? `<div class="alert warn">A aba não tem coluna <b>Semana</b>. Informe a semana acima.</div>` : ''}
       ${missing.length ? `<div class="alert info" style="font-size:12px">Colunas não encontradas (ficarão vazias): ${esc(missing.join(', '))}</div>` : ''}
       ${dashN ? `<div class="alert info" style="font-size:12px">${dashN} data(s) com “-” não foram aceitas como data e serão gravadas como não informadas.</div>` : ''}
@@ -1505,23 +1530,27 @@ function openImport(startKind){
       ${errs.length ? `<div style="font-weight:700;margin:8px 0 4px">Erros por linha e campo (${errs.length})</div><ul class="err-list">${errs.slice(0, 500).join('')}</ul>` : ''}
       <details ${P.results.length <= 30 ? 'open' : ''} style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Prévia ${P.results.length > 100 ? '(primeiras 100 linhas)' : ''}</summary>
       <div class="tbl-wrap" style="max-height:300px;margin-top:6px"><table><thead><tr><th>Linha</th><th>Status</th>${cols.map(c => `<th>${esc(c.l)}</th>`).join('')}</tr></thead><tbody>
-      ${P.results.slice(0, 100).map(r => `<tr><td>${r.line}</td><td>${r.errors.length ? '<span class="chip err">Pendente</span>' : r.existing ? '<span class="chip warn">Atualizar</span>' : '<span class="chip ok">Novo</span>'}</td>${cols.map(c => `<td>${esc(displayVal(kind, r.rec, c))}</td>`).join('')}</tr>`).join('')}
+      ${P.results.slice(0, 100).map(r => `<tr><td>${r.line}</td><td>${r.errors.length ? '<span class="chip err">Pendente</span>' : r.changed ? '<span class="chip warn">Alterar</span>' : r.existing ? '<span class="chip">Sem alteração</span>' : '<span class="chip ok">Novo</span>'}</td>${cols.map(c => `<td>${esc(displayVal(kind, r.rec, c))}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div></details>`;
   }
   function updateBtn(){
     const v = {}; KS.forEach(k => v[k] = st.part[k].results.filter(r => !r.errors.length));
-    const total = v.labor.length + v.equip.length; const upd = KS.some(k => v[k].some(r => r.existing));
+    const act = k => v[k].filter(r => !r.existing || r.changed).length;
+    const rm = k => { const cb = $(`[data-mirror="${k}"]`, el); return cb && cb.checked ? (st.part[k].missing || []).length : 0; };
+    const total = act('labor') + act('equip') + rm('labor') + rm('equip'); const upd = KS.some(k => v[k].some(r => r.changed)) || rm('labor') + rm('equip') > 0;
     const b = $('[data-ok]', el);
     b.disabled = !total || (upd && !$('[data-confirm]', el).checked);
-    b.textContent = total ? `Importar ${v.labor.length} de mão de obra + ${v.equip.length} de equipamentos` : 'Importar';
+    b.textContent = total ? `Importar: ${act('labor')} mão de obra · ${act('equip')} equipamentos${rm('labor') + rm('equip') ? ` · excluir ${rm('labor') + rm('equip')}` : ''}` : (KS.some(k => v[k].length) ? 'Nada a alterar — app já está igual à planilha' : 'Importar');
   }
   $('[data-ok]', el).onclick = () => {
-    const res = Repo.tx(() => { const o = {}; for (const k of KS) if (st.part[k].results.length) o[k] = commitImport(k, st.part[k].results); return o; });
+    const res = Repo.tx(() => { const o = {}; for (const k of KS) { const cb = $(`[data-mirror="${k}"]`, el); const ids = cb && cb.checked ? new Set(st.part[k].missing.map(x => x.id)) : null; if (st.part[k].results.length) o[k] = commitImport(k, st.part[k].results, false, ids); } return o; });
+    Sync.markImported();
     if (!res.ok) return;
-    const t = k => { const r = res.out[k]; return r ? `${KINDS[k].title}: ${r.created} novo(s), ${r.updated} atualizado(s)${r.preserved ? `, ${r.preserved} com data inicial preservada` : ''}` : `${KINDS[k].title}: não importado`; };
+    const t = k => { const r = res.out[k]; return r ? `${KINDS[k].title}: ${r.created} novo(s), ${r.updated} alterado(s)${r.removed ? `, ${r.removed} excluído(s)` : ''}${r.preserved ? `, ${r.preserved} com data inicial preservada` : ''}` : `${KINDS[k].title}: não importado`; };
     toast(`Importação salva — ${t('labor')} · ${t('equip')}.`, 'ok');
     m.close(); refreshAll();
   };
+  if (preWb) setWb(preWb, preName || 'Google Sheets publicado');
 }
 
 /* ---------- totais sem detalhamento ---------- */
@@ -1896,6 +1925,57 @@ function printResumo(){
 /* =====================================================================
    INICIALIZAÇÃO
    ===================================================================== */
+/* ---------- Conexão com a planilha publicada (leitura) ---------- */
+const Sync = {
+  wb: null, at: null, busy: false,
+  bar(cls, html, acts = ''){ const b = $('#syncBar'); b.className = 'sync ' + cls; b.innerHTML = `<span class="dot"></span><span>${html}</span><span class="acts">${acts}</span>`; },
+  summarize(wb){
+    const out = {};
+    for (const k of ['labor', 'equip']) {
+      const sh = guessSheet(k, wb); if (!sh) { out[k] = null; continue; }
+      const grid = sheetGrid(wb.Sheets[sh]); const hdr = mapHeaders(k, grid); if (!hdr || !DISTINCT[k].some(x => hdr.map[x] != null)) { out[k] = null; continue; }
+      const res = analyzeImport(k, grid, hdr, '', false, detectDateOrder(k, grid, hdr) || 'dmy');
+      const v = res.filter(r => !r.errors.length);
+      out[k] = {sheet: sh, novos: v.filter(r => !r.existing).length, alterados: v.filter(r => r.changed).length, pend: res.length - v.length, total: res.length};
+    }
+    return out;
+  },
+  async run(manual){
+    if (this.busy || !libsOk()) return; this.busy = true;
+    const cfg = sheetCfg();
+    this.bar('load', 'Lendo a planilha conectada…');
+    try {
+      this.wb = await fetchPublishedWorkbook(cfg.url, {labor: cfg.gidL, equip: cfg.gidE}); this.at = new Date();
+      this.paint();
+      if (manual) { const sm = this.summarize(this.wb); if (['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados || sm[k].pend))) this.review(); else toast('O app já está igual à planilha.', 'ok'); }
+    } catch (e) {
+      this.bar('err', `<b>Não foi possível ler a planilha conectada</b> (${esc(e.message)}). O navegador pode estar bloqueando o acesso ou a planilha deixou de estar publicada.`, `<button class="btn sm" data-sync="run">Tentar de novo</button><button class="btn sm" data-sync="cfg">Conexão</button>`);
+    } finally { this.busy = false; }
+  },
+  paint(){
+    if (!this.wb) return;
+    const sm = this.summarize(this.wb); const hh = this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+    const part = k => { const x = sm[k]; const nm = k === 'labor' ? 'MO' : 'Equipamento'; if (!x) return `aba ${nm}: não encontrada`; const bits = []; if (x.novos) bits.push(`<b>${x.novos} novo(s)</b>`); if (x.alterados) bits.push(`<b>${x.alterados} alterado(s)</b>`); if (x.pend) bits.push(`${x.pend} com erro`); return `aba ${nm}: ${bits.length ? bits.join(', ') : 'sem novidades'}`; };
+    const chg = ['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados));
+    this.bar(chg ? 'chg' : 'ok', `<b>Planilha conectada</b> · lida às ${hh} · ${part('labor')} · ${part('equip')}`,
+      `${chg || ['labor', 'equip'].some(k => sm[k] && sm[k].pend) ? '<button class="btn sm primary" data-sync="review">Revisar e importar</button>' : ''}<button class="btn sm" data-sync="run">⟳ Ler de novo</button>`);
+  },
+  review(){ if (this.wb) openImport(UI.tab === 'equip' ? 'equip' : 'labor', this.wb, `Planilha conectada (lida às ${this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})})`); },
+  markImported(){ setTimeout(() => this.paint(), 0); },
+  config(){
+    const c = sheetCfg();
+    const md = openModal({title: 'Conexão com a planilha', body: `
+      <div class="alert info" style="font-size:12px">O app <b>lê</b> a planilha publicada na Web (Arquivo → Compartilhar → Publicar na Web). Ele nunca grava nada no Google Sheets. Novidades e alterações são mostradas para você revisar e confirmar antes de entrar no app.</div>
+      <div class="fld"><span>Link publicado (…/pubhtml)</span><input data-c="url" value="${esc(c.url)}"></div>
+      <div class="form-grid" style="margin-top:10px"><div class="fld"><span>gid da aba MO (reserva)</span><input data-c="gidL" value="${esc(c.gidL)}"></div><div class="fld"><span>gid da aba Equipamento (reserva)</span><input data-c="gidE" value="${esc(c.gidE)}" placeholder="opcional"></div></div>
+      <p class="muted" style="font-size:12px">Os gids só são usados se não for possível ler o arquivo inteiro. Para achar o gid: abra a aba no Google Sheets e copie o número depois de <i>gid=</i> no endereço.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" data-c="auto" ${c.auto ? 'checked' : ''} style="width:auto;min-height:0"> Ler a planilha automaticamente ao abrir o app</label>`,
+      foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Salvar e ler agora</button>`});
+    $('[data-x]', md.el).onclick = md.close;
+    $('[data-ok]', md.el).onclick = () => { const n = {url: $('[data-c=url]', md.el).value.trim(), gidL: $('[data-c=gidL]', md.el).value.trim(), gidE: $('[data-c=gidE]', md.el).value.trim(), auto: $('[data-c=auto]', md.el).checked}; saveSheetCfg(n); md.close(); this.run(true); };
+  }
+};
+document.addEventListener('click', e => { const b = e.target.closest('[data-sync]'); if (!b) return; const a = b.dataset.sync; if (a === 'run') Sync.run(true); else if (a === 'review') Sync.review(); else if (a === 'cfg') Sync.config(); });
 function paintStorage(){ const el = document.getElementById('storeUse'); if (!el) return; const mb = Repo.lastBytes / 1048576; el.innerHTML = `Armazenamento usado: <b>${mb < 0.1 ? Math.max(1, Math.round(Repo.lastBytes / 1024)) + ' KB' : mb.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' MB'}</b> de ~5 MB`; el.style.color = mb > 4 ? '#FCA5A5' : ''; }
 function paintLogo(){ $('#logoBox').innerHTML = logoHTML(false); $('#logoBoxM').innerHTML = logoHTML(false); }
 function refreshAll(){
@@ -1926,6 +2006,9 @@ function init(){
   $('#fileLogo').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { localStorage.setItem(LS_LOGO, rd.result); paintLogo(); toast('Logo atualizado (salvo neste navegador).', 'ok'); } catch (er) { toast('Imagem muito grande para salvar.', 'err'); } }; rd.readAsDataURL(f); };
   let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { if (UI.tab !== 'resumo') renderHist(UI.tab, UI._last[UI.tab]); }, 250); });
   switchTab('labor');
+  $('#btnSync').onclick = () => Sync.run(true);
+  $('#btnSyncCfg').onclick = () => Sync.config();
+  if (sheetCfg().auto) Sync.run(false); else Sync.bar('', 'Planilha conectada — leitura automática desativada.', '<button class="btn sm" data-sync="run">⟳ Ler agora</button><button class="btn sm" data-sync="cfg">Conexão</button>');
 }
 init();
 </script>
